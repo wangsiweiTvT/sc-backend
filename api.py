@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from db import get_db_conn
+from monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms
 
-app = FastAPI(title="水厂传感器数据 API", version="0.2.0")
+app = FastAPI(title="水厂传感器数据 API", version="0.3.0")
 
 # CORS：前端 dev server（VITE_USE_MOCK=false 时跨域调用）
 app.add_middleware(
@@ -96,8 +97,7 @@ async def history_data(
 
 # ---------- 实时快照 ----------
 
-# 固定四台设备；快照里还会带上 sensor_data 中出现过的其他设备
-SNAPSHOT_DEVICES = [f"Di-Jiu-Shui-Chang-{i}" for i in range(1, 5)]
+# 固定四台设备定义在 monitor_core；快照里还会带上 sensor_data 中出现过的其他设备
 
 @app.get("/api/readings/latest")
 async def readings_latest():
@@ -116,9 +116,7 @@ async def readings_latest():
             readings[dev] = row_to_dict(row) if row else None
     return {"server_time": datetime.now().isoformat(), "readings": readings}
 
-# ---------- 告警存储（记录由前端判定生成，后端原样存取） ----------
-
-ALARM_KEEP_MAX = 500
+# ---------- 告警存储（二期起记录由 anomaly_detector 生成；前端迁移期间仍可写入） ----------
 
 @app.get("/api/alarms")
 async def list_alarms():
@@ -133,33 +131,13 @@ async def append_alarms(alarms: List[dict]):
     """批量追加，id 冲突覆盖，追加后裁剪保留最新 500 条"""
     if any(not a.get("id") for a in alarms):
         raise HTTPException(status_code=400, detail="每条记录必须带 id 字段")
-    conn = get_db_conn()
-    with conn.cursor() as cur:
-        cur.executemany(
-            "INSERT INTO alarms (id, payload) VALUES (%s, %s)"
-            " AS incoming ON DUPLICATE KEY UPDATE payload = incoming.payload",
-            [(a["id"], json.dumps(a, ensure_ascii=False)) for a in alarms],
-        )
-        cur.execute("SELECT COUNT(*) FROM alarms")
-        overflow = cur.fetchone()[0] - ALARM_KEEP_MAX
-        if overflow > 0:
-            cur.execute(
-                "DELETE FROM alarms ORDER BY created_at ASC, id ASC LIMIT %s",
-                (overflow,),
-            )
+    upsert_alarms(alarms, trim=True)
     return {}
 
 @app.put("/api/alarms/{alarm_id}")
 async def update_alarm(alarm_id: str, alarm: dict):
     """按 id 覆盖单条记录，不存在就插入（upsert），始终 200"""
-    key = alarm.get("id", alarm_id)
-    conn = get_db_conn()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO alarms (id, payload) VALUES (%s, %s)"
-            " AS incoming ON DUPLICATE KEY UPDATE payload = incoming.payload",
-            (key, json.dumps(alarm, ensure_ascii=False)),
-        )
+    upsert_alarms([{**alarm, "id": alarm.get("id", alarm_id)}], trim=False)
     return {}
 
 @app.delete("/api/alarms")
@@ -170,20 +148,7 @@ async def clear_alarms():
         cur.execute("DELETE FROM alarms")
     return {}
 
-# ---------- 阈值规则（兼作二期后端检测器的配置源） ----------
-
-# 空表时返回的默认值，与前端文档 §4.3 的默认表一致
-THRESHOLD_PARAMS = {
-    "Vf": (5, 35), "Sf": (0.5, 3.5), "Fc": (800, 1500),
-    "pHf": (6.5, 8.5), "Tf": (8, 30), "Cf": (0.2, 1.0),
-}
-
-def default_thresholds():
-    return [
-        {"deviceId": dev, "paramKey": param, "low": low, "high": high, "enabled": True}
-        for dev in SNAPSHOT_DEVICES
-        for param, (low, high) in THRESHOLD_PARAMS.items()
-    ]
+# ---------- 阈值规则（anomaly_detector 的判定配置源，共享定义在 monitor_core） ----------
 
 @app.get("/api/thresholds")
 async def get_thresholds():
@@ -268,3 +233,17 @@ async def delete_receiver(receiver_id: str):
 async def simulate_offline(device_id: str):
     """演示"手动置离线"按钮专用，前端本地表现，后端空实现"""
     return {}
+
+# ---------- 检测器状态 ----------
+
+@app.get("/api/detector/status")
+async def detector_status():
+    """检测器心跳：60 秒内扫过即视为在运行（进程挂了能发现）"""
+    conn = get_db_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT last_scan_at, scans_count FROM detector_status WHERE id = 1")
+        row = cur.fetchone()
+    if row is None:
+        return {"running": False, "last_scan_at": None, "scans_count": 0}
+    running = row[0] >= datetime.now() - timedelta(seconds=60)
+    return {"running": running, "last_scan_at": row[0].isoformat(), "scans_count": row[1]}

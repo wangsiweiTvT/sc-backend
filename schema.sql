@@ -39,3 +39,10 @@ CREATE TABLE `receivers` (
   `phone` varchar(16) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='短信接收人';
+
+CREATE TABLE IF NOT EXISTS `detector_status` (
+  `id` tinyint NOT NULL,
+  `last_scan_at` datetime NOT NULL,
+  `scans_count` bigint NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='检测器心跳（GET /api/detector/status）';
