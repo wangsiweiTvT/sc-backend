@@ -1,5 +1,5 @@
 # 传感器数据查询 + 监控配置 API（供前端调用）
-# 启动：python3 -m uvicorn api:app --port 8000
+# 启动：python3 -m uvicorn app.api:app --port 8000（或 ./scripts/start_api.sh）
 # 交互文档：http://127.0.0.1:8000/docs
 # 接口契约见前端仓库 docs/backend-api.md
 import json
@@ -11,8 +11,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from db import get_db_conn
-from monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms
+from app.db import get_db_conn
+from app.monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms
 
 app = FastAPI(title="水厂传感器数据 API", version="0.3.0")
 

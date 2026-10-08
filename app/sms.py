@@ -11,7 +11,7 @@ import urllib.request
 import uuid
 from datetime import datetime
 
-from monitor_core import DEVICE_NAMES, PARAM_META, OFFLINE_AFTER_SECONDS
+from app.monitor_core import DEVICE_NAMES, PARAM_META, OFFLINE_AFTER_SECONDS
 
 
 def _fmt(v):

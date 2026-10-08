@@ -1,12 +1,13 @@
-# 数据库公共配置：mqtt_consumer 和 api 共用，改连接信息只改这一处
-# 密码不写死在代码里：优先读环境变量，否则读同目录 .env（.gitignore 已排除，不会进仓库）
+# 数据库公共配置：consumer / api / detector 共用，改连接信息只改这一处
+# 密码不写死在代码里：优先读环境变量，否则读仓库根目录 .env（.gitignore 已排除，不会进仓库）
 import os
 import pymysql
 
 
 def _load_env():
     """读取仓库根目录的 .env（每行 KEY=VALUE），只填充尚未设置的环境变量"""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    # app/ 的上一级 = 仓库根目录（.env 固定放根目录）
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     if not os.path.exists(env_path):
         return
     with open(env_path, encoding="utf-8") as f:

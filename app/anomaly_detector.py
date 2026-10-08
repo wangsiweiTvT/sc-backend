@@ -1,18 +1,18 @@
 # 异常检测器（二期）：常驻进程，周期扫描 sensor_data 生成告警并触发短信。
 # 判定语义与前端 v1 完全一致（由前端 alarmEngine.spec.ts 钉死，tests/test_detector.py 移植），
 # 细节见 docs/superpowers/specs/2026-10-08-backend-detection-design.md
-# 启动：./start_detector.sh（或 python3 -u anomaly_detector.py）
+# 启动：./scripts/start_detector.sh（或 python3 -m app.anomaly_detector）
 import json
 import os
 import time
 from datetime import datetime
 
-from db import get_db_conn
-from monitor_core import (
+from app.db import get_db_conn
+from app.monitor_core import (
     SNAPSHOT_DEVICES, PARAM_COLUMN, OFFLINE_KEY, ALARM_COOLDOWN_MS,
     load_thresholds, load_receivers, upsert_alarms,
 )
-from sms import settle_sms, get_sender
+from app.sms import settle_sms, get_sender
 
 # 均可用环境变量覆盖；离线窗口默认 780s（=13 分钟，与前端 OFFLINE_AFTER_MS 一致），覆盖值仅供测试
 OFFLINE_AFTER_SECONDS = float(os.environ.get("DETECTOR_OFFLINE_SECONDS", 780))

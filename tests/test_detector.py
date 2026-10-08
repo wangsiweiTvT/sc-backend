@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from anomaly_detector import judge_device, plan_alarms, cooldown_key, OFFLINE_AFTER_SECONDS
-from sms import build_sms_text, settle_sms
+from app.anomaly_detector import judge_device, plan_alarms, cooldown_key, OFFLINE_AFTER_SECONDS
+from app.sms import build_sms_text, settle_sms
 
 
 NOW = datetime(2026, 10, 8, 12, 0, 0)

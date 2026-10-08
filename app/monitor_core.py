@@ -3,7 +3,7 @@
 # docs/superpowers/specs/2026-10-08-backend-detection-design.md
 import json
 
-from db import get_db_conn
+from app.db import get_db_conn
 
 # 固定的四台设备（判定/快照范围；历史测试设备不参与）
 SNAPSHOT_DEVICES = [f"Di-Jiu-Shui-Chang-{i}" for i in range(1, 5)]

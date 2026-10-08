@@ -4,7 +4,7 @@ from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
-from db import get_db_conn
+from app.db import get_db_conn
 
 # MQTT 服务器配置（本地 broker）
 BROKER_HOST = "127.0.0.1"
