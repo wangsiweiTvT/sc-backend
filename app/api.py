@@ -12,7 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.db import get_db_conn
+from app.log import setup, intercept_stdlib
 from app.monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms
+
+# 本服务日志写 logs/api.log（loguru 轮转），并把 uvicorn 的标准库日志也接进来
+setup("api")
+intercept_stdlib()
 
 app = FastAPI(title="水厂传感器数据 API", version="0.3.0")
 

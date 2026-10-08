@@ -29,6 +29,7 @@ app/mqtt_client.py       mosquitto          app/mqtt_consumer.py       MySQL
 - **app/monitor_core.py** — api 与 detector 的共享定义（设备清单、默认阈值、判定常量、告警读写）。
 - **app/api.py** — REST API（FastAPI），交互文档见 `http://127.0.0.1:8000/docs`。
 - **app/db.py** — 数据库连接公共模块，连接配置从环境变量 / 根目录 `.env` 读取。
+- **app/log.py** — 日志模块（loguru）：统一时间/级别/位置格式，日志文件超 10MB 自动轮转、旧文件保留 7 天。
 - **schema.sql** — 全部建表语句。
 
 ## 快速开始
@@ -51,7 +52,7 @@ mysql -uroot -p < schema.sql
 ./scripts/start_client.sh     # 模拟发送端（真实环境用真设备，不需要它）
 ```
 
-停止用对应的 `scripts/stop_*.sh`；日志在 `logs/` 目录（如 `tail -f logs/consumer.log`）。
+停止用对应的 `scripts/stop_*.sh`；日志在 `logs/` 目录（如 `tail -f logs/consumer.log`），由 loguru 管理：超 10MB 自动轮转、旧文件保留 7 天；`*.err` 平时为空，只在进程启动失败/崩溃时有内容。
 
 ## API 一览
 

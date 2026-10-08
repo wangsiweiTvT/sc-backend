@@ -3,9 +3,13 @@ import json
 import os
 import random
 import time
+import warnings
 from datetime import datetime
 
-from app.log import log
+from app.log import log, setup
+
+# paho 旧版回调 API 的弃用警告是已知启动噪音，压掉让 *.err 只记真故障
+warnings.filterwarnings("ignore", message="Callback API version 1")
 
 class MQTTClient:
     def __init__(self, broker_host, broker_port=1883, client_id=None):
@@ -111,6 +115,7 @@ def jittered_data(data, ratio=0.1):
             for k, v in data.items()}
 
 if __name__ == "__main__":
+    setup("mqtt_client")  # 本服务日志写 logs/mqtt_client.log
     MQTT_BROKER_HOST = "127.0.0.1"  # MQTT 服务器地址（本地 broker）
     MQTT_BROKER_PORT = 1883
     # 模拟 4 台设备，每台一条独立连接、各自的主题（与前端四台设备/默认阈值对应）

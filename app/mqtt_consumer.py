@@ -1,11 +1,14 @@
 # 这是mqtt接受消息的代码
 import json
+import warnings
 from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
 from app.db import get_db_conn
-from app.log import log
+from app.log import log, setup
+
+setup("consumer")  # 本服务日志写 logs/consumer.log（从仓库根目录启动）
 
 # MQTT 服务器配置（本地 broker）
 BROKER_HOST = "127.0.0.1"
@@ -83,7 +86,9 @@ def on_message(client, userdata, msg):
     elif result == "dup":
         log("♻️ 重复数据，已跳过")
 
-# 创建客户端实例（paho-mqtt 2.x 需显式指定回调 API 版本）
+# 创建客户端实例（paho-mqtt 2.x 需显式指定回调 API 版本；
+# VERSION1 的弃用警告是已知启动噪音，压掉让 *.err 只记真故障）
+warnings.filterwarnings("ignore", message="Callback API version 1")
 client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
 client.on_connect = on_connect
 client.on_message = on_message
