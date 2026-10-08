@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+
+# 日志
+*.log
+
+# 本地隐私配置（数据库密码等）
+.env
+
+# 本地工具状态
+.claude/
