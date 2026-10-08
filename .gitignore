@@ -6,7 +6,8 @@ __pycache__/
 # IDE
 .idea/
 
-# 日志
+# 日志（logs/ 整目录不跟踪，含 .log 轮转文件和 .err 兜底文件）
+logs/
 *.log
 
 # 本地隐私配置（数据库密码等）
