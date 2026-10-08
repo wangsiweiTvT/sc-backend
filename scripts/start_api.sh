@@ -6,6 +6,6 @@ if pgrep -f "uvicorn app.api:app" > /dev/null; then
     exit 0
 fi
 mkdir -p logs
-nohup python3 -m uvicorn app.api:app --port 8000 > logs/api.log 2>&1 &
+nohup python3 -m uvicorn app.api:app --port 8000 --log-config scripts/uvicorn-log.json > logs/api.log 2>&1 &
 echo "api 已启动，PID $!"
 echo "看日志: tail -f $(pwd)/logs/api.log"

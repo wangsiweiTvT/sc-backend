@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from app.monitor_core import DEVICE_NAMES, PARAM_META, OFFLINE_AFTER_SECONDS
+from app.log import log
 
 
 def _fmt(v):
@@ -53,7 +54,7 @@ class DryrunSender:
     """模拟发送：日志可见、实际不发（SMS_PROVIDER=dryrun，默认）"""
 
     def send(self, phone, text):
-        print(f"[SMS-dryrun] → {phone}: {text}", flush=True)
+        log(f"[SMS-dryrun] → {phone}: {text}", flush=True)
         return True
 
 
@@ -95,11 +96,11 @@ class AliyunSender:
             with urllib.request.urlopen(url, timeout=10) as resp:
                 result = json.loads(resp.read())
             if result.get("Code") != "OK":
-                print(f"[SMS-aliyun] 发送失败: {result}", flush=True)
+                log(f"[SMS-aliyun] 发送失败: {result}", flush=True)
                 return False
             return True
         except Exception as e:
-            print(f"[SMS-aliyun] 发送异常: {e}", flush=True)
+            log(f"[SMS-aliyun] 发送异常: {e}", flush=True)
             return False
 
     def _sign(self, params):

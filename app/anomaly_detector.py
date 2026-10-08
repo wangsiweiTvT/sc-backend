@@ -13,6 +13,7 @@ from app.monitor_core import (
     load_thresholds, load_receivers, upsert_alarms,
 )
 from app.sms import settle_sms, get_sender
+from app.log import log
 
 # 均可用环境变量覆盖；离线窗口默认 780s（=13 分钟，与前端 OFFLINE_AFTER_MS 一致），覆盖值仅供测试
 OFFLINE_AFTER_SECONDS = float(os.environ.get("DETECTOR_OFFLINE_SECONDS", 780))
@@ -169,7 +170,7 @@ def scan_once(sender):
 
     upsert_alarms(new_alarms, trim=False)  # 先落库（此时短信是 pending）
     for a in new_alarms:
-        print(f"🚨 [{a['level']}] {a['device_id']} {a['type']}"
+        log(f"🚨 [{a['level']}] {a['device_id']} {a['type']}"
               + (f" {a['param_key']}={a['value']} (阈值 {a['threshold']})" if a["param_key"] else ""),
               flush=True)
         settle_sms(a, phones, sender)
@@ -179,14 +180,14 @@ def scan_once(sender):
 
 if __name__ == "__main__":
     sender = get_sender()
-    print(f"检测器启动：每 {POLL_SECONDS:g}s 扫描 {len(SNAPSHOT_DEVICES)} 台设备，"
+    log(f"检测器启动：每 {POLL_SECONDS:g}s 扫描 {len(SNAPSHOT_DEVICES)} 台设备，"
           f"离线窗口 {OFFLINE_AFTER_SECONDS:g}s，冷却 {ALARM_COOLDOWN_MS // 1000}s，"
           f"短信 {type(sender).__name__}（Ctrl+C 退出）", flush=True)
     while True:
         try:
             n = scan_once(sender)
             if n:
-                print(f"本轮生成 {n} 条告警", flush=True)
+                log(f"本轮生成 {n} 条告警", flush=True)
         except Exception as e:
-            print(f"⚠️ 扫描异常（下轮继续）: {e}", flush=True)
+            log(f"⚠️ 扫描异常（下轮继续）: {e}", flush=True)
         time.sleep(POLL_SECONDS)

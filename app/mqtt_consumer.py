@@ -5,6 +5,7 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 
 from app.db import get_db_conn
+from app.log import log
 
 # MQTT 服务器配置（本地 broker）
 BROKER_HOST = "127.0.0.1"
@@ -52,35 +53,35 @@ def save_to_mysql(topic, payload):
             cur.execute(sql, args)
             return "dup" if cur.rowcount == 0 else "ok"
     except Exception as e:
-        print(f"❌ MySQL 写入异常: {e}")
+        log(f"❌ MySQL 写入异常: {e}")
         return "error"
 
 # 连接回调函数
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✅ 成功连接到 MQTT 服务器")
+        log("✅ 成功连接到 MQTT 服务器")
         # 订阅主题
         client.subscribe(TOPIC)
-        print(f"📡 已订阅主题: {TOPIC}")
+        log(f"📡 已订阅主题: {TOPIC}")
     else:
-        print(f"❌ 连接失败，返回码: {rc}")
+        log(f"❌ 连接失败，返回码: {rc}")
 
 # 接收消息回调函数
 def on_message(client, userdata, msg):
-    print(f"📩 收到消息 - 主题: {msg.topic}, 内容: {msg.payload.decode()}")
+    log(f"📩 收到消息 - 主题: {msg.topic}, 内容: {msg.payload.decode()}")
 
     # 解析 JSON，不是合法 JSON 就跳过
     try:
         payload = json.loads(msg.payload.decode())
     except (ValueError, UnicodeDecodeError) as e:
-        print(f"⚠️ 消息不是合法 JSON，跳过入库: {e}")
+        log(f"⚠️ 消息不是合法 JSON，跳过入库: {e}")
         return
 
     result = save_to_mysql(msg.topic, payload)
     if result == "ok":
-        print("💾 已存入 MySQL")
+        log("💾 已存入 MySQL")
     elif result == "dup":
-        print("♻️ 重复数据，已跳过")
+        log("♻️ 重复数据，已跳过")
 
 # 创建客户端实例（paho-mqtt 2.x 需显式指定回调 API 版本）
 client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
@@ -88,9 +89,9 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 # 连接到 MQTT 服务器
-print(f"🔗 正在连接 MQTT 服务器 {BROKER_HOST}:{BROKER_PORT}...")
+log(f"🔗 正在连接 MQTT 服务器 {BROKER_HOST}:{BROKER_PORT}...")
 client.connect(BROKER_HOST, BROKER_PORT, 60)
 
 # 保持运行，等待接收消息
-print("⏳ 等待接收消息... (按 Ctrl+C 退出)")
+log("⏳ 等待接收消息... (按 Ctrl+C 退出)")
 client.loop_forever()

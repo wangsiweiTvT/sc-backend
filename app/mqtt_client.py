@@ -5,6 +5,8 @@ import random
 import time
 from datetime import datetime
 
+from app.log import log
+
 class MQTTClient:
     def __init__(self, broker_host, broker_port=1883, client_id=None):
         self.broker_host = broker_host
@@ -42,20 +44,20 @@ class MQTTClient:
             
             return self.connected
         except Exception as e:
-            print(f"MQTT 连接失败: {e}")
+            log(f"MQTT 连接失败: {e}")
             return False
     
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.connected = True
-            print(f"✅ MQTT 已连接到 {self.broker_host}:{self.broker_port}")
+            log(f"✅ MQTT 已连接到 {self.broker_host}:{self.broker_port}")
         else:
             self.connected = False
-            print(f"❌ MQTT 连接失败，返回码: {rc}")
+            log(f"❌ MQTT 连接失败，返回码: {rc}")
     
     def _on_disconnect(self, client, userdata, rc):
         self.connected = False
-        print("MQTT 断开连接")
+        log("MQTT 断开连接")
     
     def publish_data(self, data_dict):
         """发布数据到 MQTT"""
@@ -74,14 +76,14 @@ class MQTTClient:
             result = self.client.publish(topic, payload, qos=1)
             
             if result.rc == 0:
-                print(f"📤 MQTT 发布成功: {topic} -> {payload}")
+                log(f"📤 MQTT 发布成功: {topic} -> {payload}")
                 return True
             else:
-                print(f"❌ MQTT 发布失败，返回码: {result.rc}")
+                log(f"❌ MQTT 发布失败，返回码: {result.rc}")
                 return False
                 
         except Exception as e:
-            print(f"MQTT 发布异常: {e}")
+            log(f"MQTT 发布异常: {e}")
             return False
     
     def publish_sf_vf(self, sf, vf, settle_ratio=None):
@@ -101,7 +103,7 @@ class MQTTClient:
             self.client.loop_stop()
             self.client.disconnect()
             self.connected = False
-            print("MQTT 已断开")
+            log("MQTT 已断开")
 
 def jittered_data(data, ratio=0.1):
     """给基础值加 ±ratio 随机波动，模拟真实传感器读数"""
@@ -122,7 +124,7 @@ if __name__ == "__main__":
         if c.connect():
             clients.append(c)
         else:
-            print(f"⚠️ {device_id} 连接失败，本轮跳过")
+            log(f"⚠️ {device_id} 连接失败，本轮跳过")
     if not clients:
         raise SystemExit("❌ 一台设备都没连上，退出")
 
@@ -137,15 +139,15 @@ if __name__ == "__main__":
         "Cf": 0.6,    # 余氯 mg/L（阈值 0.2~1.0）
     }
 
-    print(f"⏱ {len(clients)} 台设备，每 {INTERVAL_SECONDS} 秒各发一条（±10% 波动），Ctrl+C 退出")
+    log(f"⏱ {len(clients)} 台设备，每 {INTERVAL_SECONDS} 秒各发一条（±10% 波动），Ctrl+C 退出")
     try:
         while True:
             for c in clients:
                 if not c.publish_data(jittered_data(detailed_data)):
-                    print(f"⚠️ {c.client_id} 本次发送失败（可能断线），paho 会自动重连，下轮重试")
+                    log(f"⚠️ {c.client_id} 本次发送失败（可能断线），paho 会自动重连，下轮重试")
             time.sleep(INTERVAL_SECONDS)
     except KeyboardInterrupt:
-        print("\n收到 Ctrl+C，退出")
+        log("收到 Ctrl+C，退出")
     finally:
         for c in clients:
             c.disconnect()
