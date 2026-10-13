@@ -64,12 +64,26 @@ def load_thresholds():
     ]
 
 
+def parse_devices(raw):
+    """subscribed_devices 列（JSON 字符串）转 list；NULL/空/损坏一律 []，别让一条脏数据停掉一轮扫描"""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
 def load_receivers():
-    """全部短信接收人手机号（告警发给所有人，不按设备区分，与前端一致）"""
+    """全部接收人及订阅 [{phone, devices}]；告警只发订阅了对应设备的人（三期 §8，空订阅=收不到）"""
     conn = get_db_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT phone FROM receivers")
-        return [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT phone, subscribed_devices FROM receivers")
+        rows = cur.fetchall()
+    return [{"phone": r[0], "devices": parse_devices(r[1])} for r in rows]
 
 
 def upsert_alarms(records, trim=True):

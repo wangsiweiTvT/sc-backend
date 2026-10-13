@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.anomaly_detector import judge_device, plan_alarms, cooldown_key, OFFLINE_AFTER_SECONDS
+from app.anomaly_detector import judge_device, plan_alarms, cooldown_key, recipients_for, OFFLINE_AFTER_SECONDS
+from app.monitor_core import parse_devices
 from app.sms import build_sms_text, settle_sms
 
 
@@ -165,3 +166,26 @@ def test_build_sms_text():
     assert "低于下限" in build_sms_text(low)
     offline = {"device_id": dev, "param_key": None, "type": "offline"}
     assert "离线" in build_sms_text(offline) and "13" in build_sms_text(offline)
+
+# ---------- 三期：按设备订阅路由 ----------
+
+def test_parse_devices_null_corrupt_and_normal():
+    """JSON 列经 PyMySQL 读出是字符串；NULL/空/损坏一律兜底 []（别让一条脏数据停掉一轮扫描）"""
+    assert parse_devices(None) == []
+    assert parse_devices("") == []
+    assert parse_devices('["Di-Jiu-Shui-Chang-1","Di-Jiu-Shui-Chang-3"]') == ["Di-Jiu-Shui-Chang-1", "Di-Jiu-Shui-Chang-3"]
+    assert parse_devices("{oops") == []
+    assert parse_devices('{"a":1}') == []  # 合法 JSON 但不是数组
+
+def test_recipients_for_routes_by_device():
+    """越限与离线告警同一路由：recipients_for 只看 device_id（离线告警 param_key=None 不影响）"""
+    receivers = [
+        {"phone": "13800000001", "devices": ["Di-Jiu-Shui-Chang-1"]},
+        {"phone": "13800000002", "devices": ["Di-Jiu-Shui-Chang-2", "Di-Jiu-Shui-Chang-3"]},
+        {"phone": "13800000003", "devices": []},
+    ]
+    # 订阅者收到 / 未订阅排除 / 空订阅无人 / 混合各取各的
+    assert recipients_for("Di-Jiu-Shui-Chang-1", receivers) == ["13800000001"]
+    assert recipients_for("Di-Jiu-Shui-Chang-3", receivers) == ["13800000002"]
+    assert recipients_for("Di-Jiu-Shui-Chang-4", receivers) == []
+    assert recipients_for("Di-Jiu-Shui-Chang-1", []) == []

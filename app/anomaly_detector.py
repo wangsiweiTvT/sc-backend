@@ -88,6 +88,11 @@ def plan_alarms(device_id, prev, judged, recent, now_ms, seq_start):
     return alarms, n
 
 
+def recipients_for(device_id, receivers):
+    """一条告警的短信收件人：订阅了该设备的接收人（越限/离线同一路由，只看 device_id）"""
+    return [r["phone"] for r in receivers if device_id in r["devices"]]
+
+
 # ---------- 以下为扫描流程（依赖数据库） ----------
 
 def latest_readings():
@@ -156,7 +161,7 @@ def scan_once(sender):
         rules_by_dev.setdefault(r["device_id"], []).append(r)
     readings = latest_readings()
     recent = recent_cooldowns(now_ms)
-    phones = load_receivers()
+    receivers = load_receivers()
 
     new_alarms = []
     for dev in SNAPSHOT_DEVICES:
@@ -173,7 +178,7 @@ def scan_once(sender):
         log(f"🚨 [{a['level']}] {a['device_id']} {a['type']}"
               + (f" {a['param_key']}={a['value']} (阈值 {a['threshold']})" if a["param_key"] else ""),
               flush=True)
-        settle_sms(a, phones, sender)
+        settle_sms(a, recipients_for(a["device_id"], receivers), sender)
     upsert_alarms(new_alarms, trim=True)  # 短信结算后整条回写 + 裁剪
     return len(new_alarms)
 
