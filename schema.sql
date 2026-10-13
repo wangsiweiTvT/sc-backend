@@ -37,6 +37,7 @@ CREATE TABLE `receivers` (
   `id` varchar(32) NOT NULL,
   `name` varchar(64) NOT NULL,
   `phone` varchar(16) NOT NULL,
+  `subscribed_devices` json DEFAULT NULL COMMENT '订阅设备 id 数组，空/NULL=不收短信',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='短信接收人';
 
