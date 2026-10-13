@@ -64,7 +64,7 @@ mysql -uroot -p < schema.sql
 | GET | `/api/readings/latest` | 4 台设备最新读数快照（无数据为 null） |
 | GET / POST / PUT / DELETE | `/api/alarms` | 告警记录存储（后端判定生成，前端只读+删除，上限 500 条） |
 | GET / PUT | `/api/thresholds` | 阈值规则（4 设备 × 6 参数，空表返回默认值） |
-| GET / POST / DELETE | `/api/receivers` | 短信接收人 |
+| GET / POST / PUT / DELETE | `/api/receivers` | 短信接收人（设备订阅路由） |
 | GET | `/api/detector/status` | 检测器心跳（60 秒内扫过视为运行中） |
 | POST | `/api/devices/{id}/simulate-offline` | 演示用离线开关（空实现） |
 

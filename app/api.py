@@ -13,13 +13,13 @@ from pydantic import BaseModel, Field
 
 from app.db import get_db_conn
 from app.log import setup, intercept_stdlib
-from app.monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms
+from app.monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms, parse_devices
 
 # 本服务日志写 logs/api.log（loguru 轮转），并把 uvicorn 的标准库日志也接进来
 setup("api")
 intercept_stdlib()
 
-app = FastAPI(title="水厂传感器数据 API", version="0.3.0")
+app = FastAPI(title="水厂传感器数据 API", version="0.4.0")
 
 # CORS：前端 dev server（VITE_USE_MOCK=false 时跨域调用）
 app.add_middleware(
@@ -205,24 +205,55 @@ async def put_thresholds(rules: List[dict]):
 class ReceiverIn(BaseModel):
     name: str
     phone: str = Field(pattern=r"^1\d{10}$")  # 后端兜底校验，前端已校验
+    subscribedDevices: List[str] = []  # 设备级订阅，默认空 = 不收短信
+
+class ReceiverFullIn(ReceiverIn):
+    """PUT 全量更新：subscribedDevices 必传（覆盖父类默认值，缺了 422）"""
+    subscribedDevices: List[str]
+
+def _check_devices(devices):
+    """subscribedDevices 兜底校验：设备 id 必须 ∈ 四台清单，否则 400（契约 §4.5）"""
+    bad = [d for d in devices if d not in SNAPSHOT_DEVICES]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"未知设备 id: {bad}")
 
 @app.get("/api/receivers")
 async def list_receivers():
     conn = get_db_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, name, phone FROM receivers ORDER BY id")
-        return [{"id": r[0], "name": r[1], "phone": r[2]} for r in cur.fetchall()]
+        cur.execute("SELECT id, name, phone, subscribed_devices FROM receivers ORDER BY id")
+        rows = cur.fetchall()
+    return [{"id": r[0], "name": r[1], "phone": r[2],
+             "subscribedDevices": parse_devices(r[3])} for r in rows]
 
 @app.post("/api/receivers")
 async def add_receiver(receiver: ReceiverIn):
-    rec = {"id": f"rcv-{uuid4().hex[:8]}", "name": receiver.name, "phone": receiver.phone}
+    _check_devices(receiver.subscribedDevices)
+    rec = {"id": f"rcv-{uuid4().hex[:8]}", "name": receiver.name,
+           "phone": receiver.phone, "subscribedDevices": receiver.subscribedDevices}
     conn = get_db_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO receivers (id, name, phone) VALUES (%s, %s, %s)",
-            (rec["id"], rec["name"], rec["phone"]),
+            "INSERT INTO receivers (id, name, phone, subscribed_devices) VALUES (%s, %s, %s, %s)",
+            (rec["id"], rec["name"], rec["phone"], json.dumps(rec["subscribedDevices"])),
         )
     return rec
+
+@app.put("/api/receivers/{receiver_id}")
+async def update_receiver(receiver_id: str, body: ReceiverFullIn):
+    """全量更新。先 SELECT 存在性再 UPDATE——UPDATE 值未变时 rowcount 也是 0，不能拿它判 404"""
+    _check_devices(body.subscribedDevices)
+    conn = get_db_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM receivers WHERE id = %s", (receiver_id,))
+        if cur.fetchone()[0] == 0:
+            raise HTTPException(status_code=404, detail="接收人不存在")
+        cur.execute(
+            "UPDATE receivers SET name = %s, phone = %s, subscribed_devices = %s WHERE id = %s",
+            (body.name, body.phone, json.dumps(body.subscribedDevices), receiver_id),
+        )
+    return {"id": receiver_id, "name": body.name, "phone": body.phone,
+            "subscribedDevices": body.subscribedDevices}
 
 @app.delete("/api/receivers/{receiver_id}")
 async def delete_receiver(receiver_id: str):
