@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from app.monitor_core import DEVICE_NAMES, PARAM_META, OFFLINE_AFTER_SECONDS
+from app.db import get_db_conn
 from app.log import log
 
 
@@ -116,8 +117,88 @@ class AliyunSender:
         return base64.b64encode(digest).decode()
 
 
+class WechatSandboxSender:
+    """微信公众号测试号模板消息（SMS_PROVIDER=wechat_sandbox）。
+    按手机号查 receivers.openid 逐人发送，订阅路由/状态机不变，渠道只管送达。
+    测试号的「接口配置信息」（服务器回调）不需要——我们只发不收。
+    .env 填 WECHAT_APP_ID / WECHAT_APP_SECRET / WECHAT_TEMPLATE_ID（测试号管理页可取）。"""
+
+    TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
+    SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/template/send"
+    BAD_TOKEN_CODES = (40001, 40014, 42001)  # token 无效/不合法/过期 → 重取一次再发
+
+    def __init__(self, post=None):
+        cfg = {
+            "WECHAT_APP_ID": os.environ.get("WECHAT_APP_ID"),
+            "WECHAT_APP_SECRET": os.environ.get("WECHAT_APP_SECRET"),
+            "WECHAT_TEMPLATE_ID": os.environ.get("WECHAT_TEMPLATE_ID"),
+        }
+        missing = [k for k, v in cfg.items() if not v]
+        if missing:
+            raise RuntimeError(f"SMS_PROVIDER=wechat_sandbox 但 .env 缺少配置: {missing}")
+        self.cfg = cfg
+        self._token = None
+        self._token_expires_at = 0.0
+        self._post = post or self._http_post_json  # 测试注入点
+
+    @staticmethod
+    def _http_post_json(url, payload):
+        data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+
+    @staticmethod
+    def _openid_for(phone):
+        """手机号 → 测试号 openid（接收人扫码关注后从测试号用户列表抄录，配进 receivers 表）"""
+        conn = get_db_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT openid FROM receivers WHERE phone = %s", (phone,))
+            row = cur.fetchone()
+        return row[0] if row and row[0] else None
+
+    def _get_token(self):
+        """access_token 缓存（提前 5 分钟过期防边界），失效即重取"""
+        if self._token and time.time() < self._token_expires_at:
+            return self._token
+        r = self._post(
+            f"{self.TOKEN_URL}?grant_type=client_credential"
+            f"&appid={self.cfg['WECHAT_APP_ID']}&secret={self.cfg['WECHAT_APP_SECRET']}", None)
+        if "access_token" not in r:
+            raise RuntimeError(f"微信 access_token 获取失败: {r}")
+        self._token = r["access_token"]
+        self._token_expires_at = time.time() + r.get("expires_in", 7200) - 300
+        return self._token
+
+    def send(self, phone, text):
+        openid = self._openid_for(phone)
+        if not openid:
+            log(f"[SMS-wechat] {phone} 未配 openid，无法发送（测试号用户列表可查）", flush=True)
+            return False
+        payload = {
+            "touser": openid,
+            "template_id": self.cfg["WECHAT_TEMPLATE_ID"],
+            "data": {"content": {"value": text, "color": "#173177"}},
+        }
+        try:
+            r = self._post(f"{self.SEND_URL}?access_token={self._get_token()}", payload)
+            if r.get("errcode", 0) in self.BAD_TOKEN_CODES:  # token 过期：重取一次再发
+                self._token = None
+                self._token_expires_at = 0.0
+                r = self._post(f"{self.SEND_URL}?access_token={self._get_token()}", payload)
+            if r.get("errcode", 0) != 0:
+                log(f"[SMS-wechat] 发送失败: {r}", flush=True)
+                return False
+            return True
+        except Exception as e:  # 网络/凭据异常不能炸掉检测线程
+            log(f"[SMS-wechat] 发送异常: {e}", flush=True)
+            return False
+
+
 def get_sender():
     provider = os.environ.get("SMS_PROVIDER", "dryrun").lower()
     if provider == "aliyun":
         return AliyunSender()
+    if provider == "wechat_sandbox":
+        return WechatSandboxSender()
     return DryrunSender()
