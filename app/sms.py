@@ -35,6 +35,30 @@ def build_sms_text(alarm):
     )
 
 
+def _clip(s, limit=19):
+    """微信模板消息每行约 20 字上限且不换行：超长行截断留余量"""
+    return s if len(s) <= limit else s[:limit - 1] + "…"
+
+
+def wechat_fields(alarm, text, now_str):
+    """告警 → 微信模板四行短字段（每行 ≤19 字，规避每行约 20 字的展示截断）。
+    有告警结构按 设备/指标数值/阈值/时间 拆行；没有则文案兜底进第二行。"""
+    name = DEVICE_NAMES.get(alarm.get("device_id"), alarm.get("device_id")) if alarm else None
+    if alarm and alarm.get("type") == "offline":
+        mins = int(OFFLINE_AFTER_SECONDS // 60)
+        vals = [name, "设备离线", f"超过{mins}分钟"]
+    elif alarm and alarm.get("param_key") in PARAM_META:
+        _, cname, unit = PARAM_META[alarm["param_key"]]
+        direction = "超上限" if alarm["type"] == "high" else "低于下限"
+        vals = [name, f"{cname} {_fmt(alarm['value'])}{unit}",
+                f"{direction} {_fmt(alarm['threshold'])}{unit}"]
+    else:
+        vals = ["设备告警", text, "–"]
+    vals.append(now_str)
+    return {f"keyword{i}": {"value": _clip(v), "color": "#173177"}
+            for i, v in enumerate(vals, start=1)}
+
+
 def settle_sms(record, phones, sender):
     """告警短信状态机（对齐前端）：
     - 无接收人：立即 failed，不记 sent_at
@@ -45,7 +69,7 @@ def settle_sms(record, phones, sender):
         record["sms"]["status"] = "failed"
         return record
     text = build_sms_text(record)
-    ok = all(sender.send(phone, text) for phone in phones)  # 遇失败即止
+    ok = all(sender.send(phone, text, record) for phone in phones)  # 遇失败即止
     record["sms"]["status"] = "sent" if ok else "failed"
     record["sms"]["sent_at"] = int(time.time() * 1000)
     return record
@@ -54,7 +78,7 @@ def settle_sms(record, phones, sender):
 class DryrunSender:
     """模拟发送：日志可见、实际不发（SMS_PROVIDER=dryrun，默认）"""
 
-    def send(self, phone, text):
+    def send(self, phone, text, record=None):
         log(f"[SMS-dryrun] → {phone}: {text}", flush=True)
         return True
 
@@ -79,7 +103,7 @@ class AliyunSender:
             raise RuntimeError(f"SMS_PROVIDER=aliyun 但 .env 缺少配置: {missing}")
         self.cfg = cfg
 
-    def send(self, phone, text):
+    def send(self, phone, text, record=None):
         params = {
             "Action": "SendSms", "Version": "2017-05-25", "Format": "JSON",
             "PhoneNumbers": phone,
@@ -170,22 +194,18 @@ class WechatSandboxSender:
         self._token_expires_at = time.time() + r.get("expires_in", 7200) - 300
         return self._token
 
-    def send(self, phone, text):
+    def send(self, phone, text, record=None):
         openid = self._openid_for(phone)
         if not openid:
             log(f"[SMS-wechat] {phone} 未配 openid，无法发送（测试号用户列表可查）", flush=True)
             return False
+        # 四行短字段（设备/指标数值/阈值/时间）：微信每行约 20 字上限且不能换行，
+        # 长文案整段塞一个字段必被截断（实测"…"截断且卡片无"查看全文"入口）
+        now_str = datetime.now().strftime("%m-%d %H:%M:%S")
         payload = {
             "touser": openid,
             "template_id": self.cfg["WECHAT_TEMPLATE_ID"],
-            # 经典三字段结构（单占位符模板正文不渲染，实测空白）；
-            # 完整文案放 keyword1——即使 first/keyword2 被展示策略吞掉也不丢内容
-            "data": {
-                "first": {"value": "设备告警", "color": "#173177"},
-                "keyword1": {"value": text, "color": "#173177"},
-                "keyword2": {"value": datetime.now().strftime("%m-%d %H:%M:%S"),
-                             "color": "#173177"},
-            },
+            "data": wechat_fields(record, text, now_str),
         }
         try:
             r = self._post(f"{self.SEND_URL}?access_token={self._get_token()}", payload)

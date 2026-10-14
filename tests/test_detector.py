@@ -125,7 +125,7 @@ class StubSender:
     def __init__(self, ok=True):
         self.ok = ok
         self.sent = []
-    def send(self, phone, text):
+    def send(self, phone, text, record=None):
         self.sent.append((phone, text))
         return self.ok
 

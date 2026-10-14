@@ -1,7 +1,7 @@
 # 微信测试号模板消息发送器测试 —— HTTP 全部走注入的 FakePost，不碰网络不碰库
 import pytest
 
-from app.sms import WechatSandboxSender
+from app.sms import WechatSandboxSender, wechat_fields
 
 
 class FakePost:
@@ -26,6 +26,32 @@ def make_sender(fake, openid="oABC123"):
     return s
 
 
+# ---------- 字段拆分（测试号每行约 20 字上限，长文案必须拆多行短字段） ----------
+
+def test_wechat_fields_violation_split_short_lines():
+    alarm = {"device_id": "Di-Jiu-Shui-Chang-1", "param_key": "Vf", "type": "low",
+             "value": 19.66, "threshold": 25}
+    fields = wechat_fields(alarm, "原始文案不参与", "10-14 12:00")
+    assert [fields[f"keyword{i}"]["value"] for i in (1, 2, 3, 4)] == [
+        "九厂一期-1#", "沉降比 19.66%", "低于下限 25%", "10-14 12:00"]
+    for f in fields.values():
+        assert len(f["value"]) <= 19  # 每行留余量，永不触发微信截断
+
+def test_wechat_fields_offline_split():
+    alarm = {"device_id": "Di-Jiu-Shui-Chang-3", "param_key": None, "type": "offline",
+             "value": None, "threshold": None}
+    fields = wechat_fields(alarm, "x", "10-14 12:00")
+    assert [fields[f"keyword{i}"]["value"] for i in (1, 2, 3)] == [
+        "九厂一期-3#", "设备离线", "超过13分钟"]
+
+def test_wechat_fields_fallback_and_clip():
+    """没有告警结构（如直发测试）时文案兜底；超长行防御性截断到 ≤19"""
+    fields = wechat_fields(None, "渠道验证：这是一条很长的测试文案用于验证截断逻辑是否生效", "10-14 12:00")
+    assert fields["keyword2"]["value"].startswith("渠道验证")
+    assert len(fields["keyword2"]["value"]) <= 19
+    assert fields["keyword4"]["value"] == "10-14 12:00"
+
+
 def test_wechat_send_ok_and_token_cached():
     """两次发送只取一次 token（2h 过期，缓存命中不再请求）"""
     fake = FakePost([
@@ -39,14 +65,12 @@ def test_wechat_send_ok_and_token_cached():
     token_calls = [c for c in fake.calls if "cgi-bin/token" in c[0]]
     send_calls = [c for c in fake.calls if "template/send" in c[0]]
     assert len(token_calls) == 1 and len(send_calls) == 2
-    # payload 形状：touser=openid、模板 id、文案进 keyword1（first/keyword 经典三字段结构）
+    # payload 形状：touser=openid、模板 id、四行短字段（测试号每行约 20 字上限）
     url, payload = send_calls[0]
     assert "access_token=T1" in url
     assert payload["touser"] == "oABC123"
     assert payload["template_id"] == "tpl-test"
-    assert payload["data"]["keyword1"]["value"] == "告警A"
-    assert payload["data"]["first"]["value"]  # 引导行
-    assert payload["data"]["keyword2"]["value"]  # 时间行
+    assert set(payload["data"]) == {"keyword1", "keyword2", "keyword3", "keyword4"}
 
 
 def test_wechat_expired_token_refresh_and_retry_once():
