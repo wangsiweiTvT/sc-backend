@@ -35,7 +35,7 @@ def test_wechat_fields_violation_split_short_lines():
     assert [fields[f"keyword{i}"]["value"] for i in (1, 2, 3, 4)] == [
         "九厂一期-1#", "沉降比 19.66%", "低于下限 25%", "10-14 12:00"]
     for f in fields.values():
-        assert len(f["value"]) <= 19  # 每行留余量，永不触发微信截断
+        assert len(f["value"]) <= 16  # 模板里每行还有 3 字标签，标签+值 ≤19 留余量
 
 def test_wechat_fields_offline_split():
     alarm = {"device_id": "Di-Jiu-Shui-Chang-3", "param_key": None, "type": "offline",
@@ -45,10 +45,10 @@ def test_wechat_fields_offline_split():
         "九厂一期-3#", "设备离线", "超过13分钟"]
 
 def test_wechat_fields_fallback_and_clip():
-    """没有告警结构（如直发测试）时文案兜底；超长行防御性截断到 ≤19"""
+    """没有告警结构（如直发测试）时文案兜底；超长行防御性截断到 ≤16"""
     fields = wechat_fields(None, "渠道验证：这是一条很长的测试文案用于验证截断逻辑是否生效", "10-14 12:00")
     assert fields["keyword2"]["value"].startswith("渠道验证")
-    assert len(fields["keyword2"]["value"]) <= 19
+    assert len(fields["keyword2"]["value"]) <= 16
     assert fields["keyword4"]["value"] == "10-14 12:00"
 
 

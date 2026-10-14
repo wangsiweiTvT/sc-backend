@@ -35,13 +35,14 @@ def build_sms_text(alarm):
     )
 
 
-def _clip(s, limit=19):
-    """微信模板消息每行约 20 字上限且不换行：超长行截断留余量"""
+def _clip(s, limit=16):
+    """微信模板消息每行约 20 字上限且不换行，模板里每行还带 3 字静态标签：
+    值截到 ≤16，标签+值 ≤19 留余量"""
     return s if len(s) <= limit else s[:limit - 1] + "…"
 
 
 def wechat_fields(alarm, text, now_str):
-    """告警 → 微信模板四行短字段（每行 ≤19 字，规避每行约 20 字的展示截断）。
+    """告警 → 微信模板四行短字段（值 ≤16 字 + 模板静态标签，规避每行约 20 字的展示截断）。
     有告警结构按 设备/指标数值/阈值/时间 拆行；没有则文案兜底进第二行。"""
     name = DEVICE_NAMES.get(alarm.get("device_id"), alarm.get("device_id")) if alarm else None
     if alarm and alarm.get("type") == "offline":
