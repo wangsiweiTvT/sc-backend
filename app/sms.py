@@ -60,6 +60,13 @@ def wechat_fields(alarm, text, now_str):
             for i, v in enumerate(vals, start=1)}
 
 
+def pick_latest_unbound(followers, bound):
+    """关注者里挑「最新关注且未绑定接收人」的那个（表单扫码后自动回填 openid 用）。
+    已绑定的排除（管理员自己再扫码不该回填自己）；取关的排除；没有则 None。"""
+    cands = [f for f in followers if f.get("subscribe") and f["openid"] not in bound]
+    return max(cands, key=lambda f: f["subscribe_time"], default=None)
+
+
 def settle_sms(record, phones, sender):
     """告警短信状态机（对齐前端）：
     - 无接收人：立即 failed，不记 sent_at
@@ -150,6 +157,8 @@ class WechatSandboxSender:
 
     TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token"
     SEND_URL = "https://api.weixin.qq.com/cgi-bin/message/template/send"
+    FOLLOWER_URL = "https://api.weixin.qq.com/cgi-bin/user/get"
+    BATCH_INFO_URL = "https://api.weixin.qq.com/cgi-bin/user/info/batchget"
     BAD_TOKEN_CODES = (40001, 40014, 42001)  # token 无效/不合法/过期 → 重取一次再发
 
     def __init__(self, post=None):
@@ -194,6 +203,27 @@ class WechatSandboxSender:
         self._token = r["access_token"]
         self._token_expires_at = time.time() + r.get("expires_in", 7200) - 300
         return self._token
+
+    def fetch_followers(self):
+        """拉全部关注者（user/get 按 next_openid 翻页，测试号上限 100 人）
+        + 批量详情（batchget 一次，含 subscribe/subscribe_time）"""
+        openids, nxt = [], None
+        while True:
+            url = f"{self.FOLLOWER_URL}?access_token={self._get_token()}"
+            if nxt:
+                url += f"&next_openid={nxt}"
+            r = self._post(url, None)
+            page = r.get("data", {}).get("openid", [])
+            openids += page
+            nxt = r.get("next_openid", "")
+            if not nxt or not page:
+                break
+        if not openids:
+            return []
+        r = self._post(
+            f"{self.BATCH_INFO_URL}?access_token={self._get_token()}",
+            {"user_list": [{"openid": o} for o in openids]})
+        return r.get("user_info_list", [])
 
     def send(self, phone, text, record=None):
         openid = self._openid_for(phone)

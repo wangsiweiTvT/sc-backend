@@ -1,7 +1,7 @@
 # 微信测试号模板消息发送器测试 —— HTTP 全部走注入的 FakePost，不碰网络不碰库
 import pytest
 
-from app.sms import WechatSandboxSender, wechat_fields
+from app.sms import WechatSandboxSender, wechat_fields, pick_latest_unbound
 
 
 class FakePost:
@@ -50,6 +50,56 @@ def test_wechat_fields_fallback_and_clip():
     assert fields["keyword2"]["value"].startswith("渠道验证")
     assert len(fields["keyword2"]["value"]) <= 16
     assert fields["keyword4"]["value"] == "10-14 12:00"
+
+
+# ---------- 关注者拉取与「最新未绑定」挑选（表单扫码后自动回填 openid 用） ----------
+
+def test_wechat_fetch_followers_pagination_and_info():
+    """user/get 按 next_openid 翻页拉全量 openid，batchget 一次拿详情（含关注时间）"""
+    fake = FakePost([
+        {"access_token": "T1", "expires_in": 7200},                  # 取 token
+        {"total": 3, "count": 2, "data": {"openid": ["oA", "oB"]},
+         "next_openid": "oB"},                                       # 第 1 页
+        {"total": 3, "count": 1, "data": {"openid": ["oC"]},
+         "next_openid": ""},                                         # 第 2 页（末页）
+        {"user_info_list": [                                         # 批量详情
+            {"openid": "oA", "subscribe": 1, "subscribe_time": 100},
+            {"openid": "oB", "subscribe": 0, "subscribe_time": 50},
+            {"openid": "oC", "subscribe": 1, "subscribe_time": 200},
+        ]},
+    ])
+    s = make_sender(fake)
+    assert s.fetch_followers() == [
+        {"openid": "oA", "subscribe": 1, "subscribe_time": 100},
+        {"openid": "oB", "subscribe": 0, "subscribe_time": 50},
+        {"openid": "oC", "subscribe": 1, "subscribe_time": 200},
+    ]
+    get_calls = [c for c in fake.calls if "/user/get" in c[0]]
+    assert len(get_calls) == 2  # 确实翻了页
+
+def test_wechat_fetch_followers_empty():
+    """一个关注者都没有：不发 batchget，返回空列表"""
+    fake = FakePost([
+        {"access_token": "T1", "expires_in": 7200},
+        {"total": 0, "count": 0, "data": {"openid": []}, "next_openid": ""},
+    ])
+    s = make_sender(fake)
+    assert s.fetch_followers() == []
+    assert len(fake.calls) == 2  # token + user/get，没有 batchget
+
+def test_pick_latest_unbound():
+    followers = [
+        {"openid": "oA", "subscribe": 1, "subscribe_time": 100},
+        {"openid": "oB", "subscribe": 0, "subscribe_time": 300},   # 已取关，跳过
+        {"openid": "oC", "subscribe": 1, "subscribe_time": 200},
+    ]
+    # 没人绑过 → 挑最新关注的 oC
+    assert pick_latest_unbound(followers, set())["openid"] == "oC"
+    # oC 已绑过 → 退而取 oA（绑定排除，防止管理员自己再扫码时回填自己）
+    assert pick_latest_unbound(followers, {"oC"})["openid"] == "oA"
+    # 全绑/取关 → None
+    assert pick_latest_unbound(followers, {"oA", "oC"}) is None
+    assert pick_latest_unbound([], set()) is None
 
 
 def test_wechat_send_ok_and_token_cached():

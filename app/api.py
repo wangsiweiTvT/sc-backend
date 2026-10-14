@@ -14,12 +14,13 @@ from pydantic import BaseModel, Field
 from app.db import get_db_conn
 from app.log import setup, intercept_stdlib
 from app.monitor_core import SNAPSHOT_DEVICES, default_thresholds, upsert_alarms, parse_devices
+from app.sms import WechatSandboxSender, pick_latest_unbound
 
 # 本服务日志写 logs/api.log（loguru 轮转），并把 uvicorn 的标准库日志也接进来
 setup("api")
 intercept_stdlib()
 
-app = FastAPI(title="水厂传感器数据 API", version="0.4.0")
+app = FastAPI(title="水厂传感器数据 API", version="0.4.1")
 
 # CORS：前端 dev server（VITE_USE_MOCK=false 时跨域调用）
 app.add_middleware(
@@ -288,3 +289,25 @@ async def detector_status():
         return {"running": False, "last_scan_at": None, "scans_count": 0}
     running = row[0] >= datetime.now() - timedelta(seconds=60)
     return {"running": running, "last_scan_at": row[0].isoformat(), "scans_count": row[1]}
+
+
+# ---------- 微信测试号 ----------
+
+@app.get("/api/wechat/latest-follower")
+async def wechat_latest_follower():
+    """最新关注且未绑定接收人的 openid（接收人表单扫码后自动回填用）。
+    没有未绑定的关注者返回 openid=null；渠道未配置 503；微信接口失败 502。"""
+    try:
+        sender = WechatSandboxSender()
+        followers = sender.fetch_followers()
+    except RuntimeError as e:  # .env 没配微信渠道
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:  # 网络/微信侧异常
+        raise HTTPException(status_code=502, detail=f"微信接口调用失败: {e}")
+    conn = get_db_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT openid FROM receivers WHERE openid IS NOT NULL AND openid != ''")
+        bound = {r[0] for r in cur.fetchall()}
+    latest = pick_latest_unbound(followers, bound)
+    return {"openid": latest["openid"] if latest else None,
+            "subscribeTime": latest["subscribe_time"] if latest else None}
