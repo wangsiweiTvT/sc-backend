@@ -206,10 +206,12 @@ class ReceiverIn(BaseModel):
     name: str
     phone: str = Field(pattern=r"^1\d{10}$")  # 后端兜底校验，前端已校验
     subscribedDevices: List[str] = []  # 设备级订阅，默认空 = 不收短信
+    wechatOpenid: Optional[str] = None  # 微信测试号 openid，未配则微信渠道对该人发送失败
 
 class ReceiverFullIn(ReceiverIn):
     """PUT 全量更新：subscribedDevices 必传（覆盖父类默认值，缺了 422）"""
     subscribedDevices: List[str]
+    wechatOpenid: Optional[str] = Field(..., description="必传，可传 null 清空")
 
 def _check_devices(devices):
     """subscribedDevices 兜底校验：设备 id 必须 ∈ 四台清单，否则 400（契约 §4.5）"""
@@ -221,21 +223,23 @@ def _check_devices(devices):
 async def list_receivers():
     conn = get_db_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT id, name, phone, subscribed_devices FROM receivers ORDER BY id")
+        cur.execute("SELECT id, name, phone, subscribed_devices, openid FROM receivers ORDER BY id")
         rows = cur.fetchall()
     return [{"id": r[0], "name": r[1], "phone": r[2],
-             "subscribedDevices": parse_devices(r[3])} for r in rows]
+             "subscribedDevices": parse_devices(r[3]), "wechatOpenid": r[4]} for r in rows]
 
 @app.post("/api/receivers")
 async def add_receiver(receiver: ReceiverIn):
     _check_devices(receiver.subscribedDevices)
     rec = {"id": f"rcv-{uuid4().hex[:8]}", "name": receiver.name,
-           "phone": receiver.phone, "subscribedDevices": receiver.subscribedDevices}
+           "phone": receiver.phone, "subscribedDevices": receiver.subscribedDevices,
+           "wechatOpenid": receiver.wechatOpenid}
     conn = get_db_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO receivers (id, name, phone, subscribed_devices) VALUES (%s, %s, %s, %s)",
-            (rec["id"], rec["name"], rec["phone"], json.dumps(rec["subscribedDevices"])),
+            "INSERT INTO receivers (id, name, phone, subscribed_devices, openid) VALUES (%s, %s, %s, %s, %s)",
+            (rec["id"], rec["name"], rec["phone"], json.dumps(rec["subscribedDevices"]),
+             rec["wechatOpenid"]),
         )
     return rec
 
@@ -249,11 +253,12 @@ async def update_receiver(receiver_id: str, body: ReceiverFullIn):
         if cur.fetchone()[0] == 0:
             raise HTTPException(status_code=404, detail="接收人不存在")
         cur.execute(
-            "UPDATE receivers SET name = %s, phone = %s, subscribed_devices = %s WHERE id = %s",
-            (body.name, body.phone, json.dumps(body.subscribedDevices), receiver_id),
+            "UPDATE receivers SET name = %s, phone = %s, subscribed_devices = %s, openid = %s WHERE id = %s",
+            (body.name, body.phone, json.dumps(body.subscribedDevices),
+             body.wechatOpenid, receiver_id),
         )
     return {"id": receiver_id, "name": body.name, "phone": body.phone,
-            "subscribedDevices": body.subscribedDevices}
+            "subscribedDevices": body.subscribedDevices, "wechatOpenid": body.wechatOpenid}
 
 @app.delete("/api/receivers/{receiver_id}")
 async def delete_receiver(receiver_id: str):
