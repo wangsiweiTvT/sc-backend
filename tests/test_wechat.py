@@ -39,12 +39,14 @@ def test_wechat_send_ok_and_token_cached():
     token_calls = [c for c in fake.calls if "cgi-bin/token" in c[0]]
     send_calls = [c for c in fake.calls if "template/send" in c[0]]
     assert len(token_calls) == 1 and len(send_calls) == 2
-    # payload 形状：touser=openid、模板 id、文案进 content 字段
+    # payload 形状：touser=openid、模板 id、文案进 keyword1（first/keyword 经典三字段结构）
     url, payload = send_calls[0]
     assert "access_token=T1" in url
     assert payload["touser"] == "oABC123"
     assert payload["template_id"] == "tpl-test"
-    assert payload["data"]["content"]["value"] == "告警A"
+    assert payload["data"]["keyword1"]["value"] == "告警A"
+    assert payload["data"]["first"]["value"]  # 引导行
+    assert payload["data"]["keyword2"]["value"]  # 时间行
 
 
 def test_wechat_expired_token_refresh_and_retry_once():

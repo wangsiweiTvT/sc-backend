@@ -178,7 +178,14 @@ class WechatSandboxSender:
         payload = {
             "touser": openid,
             "template_id": self.cfg["WECHAT_TEMPLATE_ID"],
-            "data": {"content": {"value": text, "color": "#173177"}},
+            # 经典三字段结构（单占位符模板正文不渲染，实测空白）；
+            # 完整文案放 keyword1——即使 first/keyword2 被展示策略吞掉也不丢内容
+            "data": {
+                "first": {"value": "设备告警", "color": "#173177"},
+                "keyword1": {"value": text, "color": "#173177"},
+                "keyword2": {"value": datetime.now().strftime("%m-%d %H:%M:%S"),
+                             "color": "#173177"},
+            },
         }
         try:
             r = self._post(f"{self.SEND_URL}?access_token={self._get_token()}", payload)
